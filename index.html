@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>韓國旅遊共用記帳本</title>
+    <style>
+        :root {
+            --primary-color: #ff7b93;
+            --bg-color: #f8f9fa;
+            --danger-color: #ff4d4f;
+            --danger-bg: #fff1f0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        h2, h3 { text-align: center; color: #333; margin-top: 0; }
+        
+        .config-bar {
+            background-color: #f0f7ff; border: 1px solid #bae0ff; padding: 12px;
+            border-radius: 8px; margin-bottom: 15px; display: flex; flex-wrap: wrap;
+            gap: 10px; align-items: center; justify-content: space-between; font-size: 14px;
+        }
+        .config-item { display: flex; align-items: center; gap: 5px; }
+        .config-item input { padding: 5px; border: 1px solid #ccc; border-radius: 4px; text-align: center; }
+
+        .input-group { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .input-group input, .input-group select { padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .input-group select.cat-select { flex: 1; min-width: 100px; }
+        .input-group select.curr-select { flex: 0.8; min-width: 85px; }
+        .input-group input[type="text"] { flex: 1.8; min-width: 120px; }
+        .input-group input[type="number"] { flex: 1.2; min-width: 100px; }
+        
+        button.btn-add {
+            background-color: var(--primary-color); color: white; border: none; padding: 10px 18px;
+            border-radius: 6px; cursor: pointer; font-weight: bold;
+        }
+        button.btn-add:hover { background-color: #e0667c; }
+
+        table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+        th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
+        th { background-color: #f1f1f1; color: #555; }
+        .amount { text-align: right; }
+        .btn-delete { background: none; border: none; color: var(--danger-color); cursor: pointer; font-weight: bold; }
+        tfoot tr { font-weight: bold; background-color: #fafafa; }
+        tfoot td { border-top: 2px solid #ddd; color: #333; }
+
+        .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 15px; }
+        .cat-card { border: 1px solid #e8e8e8; border-radius: 8px; padding: 12px; background-color: #fff; transition: all 0.3s ease; }
+        .cat-card.over-budget { border-color: var(--danger-color); background-color: var(--danger-bg); }
+        .cat-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 8px; color: #444; }
+        .cat-card.over-budget .cat-header { color: var(--danger-color); }
+        .cat-budget-input { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #666; margin-top: 6px; }
+        .cat-budget-input input { width: 70px; padding: 3px 5px; border: 1px solid #ccc; border-radius: 4px; text-align: right; }
+        .badge-over { display: none; color: var(--danger-color); font-size: 11px; font-weight: bold; }
+        .cat-card.over-budget .badge-over { display: inline; }
+        
+        .footer-actions { text-align: right; margin-top: 20px; }
+        .btn-clear { background-color: #6c757d; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+    </style>
+
+    <!-- 載入 Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+</head>
+<body>
+
+<div class="container">
+    <h2>🇰🇷 韓國旅遊共用記帳本</h2>
+    
+    <div class="config-bar">
+        <div class="config-item">
+            <label for="roomId"><b>群組代碼：</b></label>
+            <input type="text" id="roomId" value="jenny" style="width: 90px;" onchange="switchRoom()">
+            <!-- 新增了連線狀態顯示，方便你確認是否成功 -->
+            <span id="connStatus" style="font-size: 12px; font-weight:bold; margin-left: 8px; color: #888;">連線中...</span>
+        </div>
+        <div class="config-item">
+            <label for="exchangeRate">匯率 (1 韓元=NTD)：</label>
+            <input type="number" id="exchangeRate" value="0.024" step="0.001" style="width: 65px;" onchange="updateRate()">
+        </div>
+    </div>
+
+    <div class="input-group">
+        <select id="itemCategory" class="cat-select">
+            <option value="吃飯">吃飯</option>
+            <option value="住宿">住宿</option>
+            <option value="交通">交通</option>
+            <option value="保養品">保養品</option>
+            <option value="醫美">醫美</option>
+            <option value="鞋子">鞋子</option>
+            <option value="衣服">衣服</option>
+            <option value="包包">包包</option>
+            <option value="可愛小廢物">可愛小廢物</option>
+        </select>
+        <input type="text" id="itemName" placeholder="項目（如：來回機票）">
+        <input type="number" id="inputAmount" placeholder="金額" min="0">
+        <select id="inputCurrency" class="curr-select">
+            <option value="KRW">韓元 ₩</option>
+            <option value="TWD">台幣 NT$</option>
+        </select>
+        <button class="btn-add" onclick="addExpense()">新增</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>分類</th>
+                <th>項目</th>
+                <th class="amount">韓元 (KRW)</th>
+                <th class="amount">台幣 (TWD)</th>
+                <th style="width: 30px;"></th>
+            </tr>
+        </thead>
+        <tbody id="expenseList"></tbody>
+        <tfoot>
+            <tr>
+                <td colspan="2">總計</td>
+                <td class="amount" id="totalKrw">0 ₩</td>
+                <td class="amount" id="totalTwd">NT$ 0</td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <hr style="border: 0; border-top: 1px solid #eee;">
+
+    <h3 style="margin-top: 20px; font-size: 16px;">📊 分類統計與預算設定 (TWD)</h3>
+    <div class="category-grid" id="categoryGrid"></div>
+
+    <div class="footer-actions">
+        <button class="btn-clear" onclick="clearAll()">清空此群組所有資料</button>
+    </div>
+</div>
+
+<script>
+    const categories = ['吃飯', '住宿', '交通', '保養品', '醫美', '鞋子', '衣服', '包包', '可愛小廢物'];
+    let currentRoom = localStorage.getItem('korea_room_id') || 'jenny';
+    document.getElementById('roomId').value = currentRoom;
+
+    let expensesData = {};
+    let budgetsData = {
+        '吃飯': 10000, '住宿': 15000, '交通': 3000, '保養品': 5000,
+        '醫美': 10000, '鞋子': 4000, '衣服': 6000, '包包': 8000, '可愛小廢物': 2000
+    };
+    let currentRate = 0.024;
+
+    // ★ 關鍵修復：不管有沒有連線成功，一開始強制先畫出畫面，避免下面變空白
+    renderAll();
+
+    // ==========================================
+    // 👇👇👇 請將下方的網址換成你剛剛建立的資料庫網址 👇👇👇
+    // ==========================================
+    const firebaseConfig = {
+        databaseURL: "https://korea-2026-e8a37-default-rtdb.firebaseio.com/"
+    };
+
+    let db;
+    try {
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        db = firebase.database();
+    } catch (e) {
+        console.error("資料庫初始化失敗，請檢查網址是否有填對");
+    }
+
+    let roomRef;
+    function listenToRoom(roomId) {
+        if (!db) return;
+        if (roomRef) roomRef.off(); 
+        
+        roomRef = db.ref('rooms/' + roomId);
+        
+        // 開始監聽資料庫變化
+        roomRef.on('value', (snapshot) => {
+            // 成功連線
+            document.getElementById('connStatus').innerText = '🟢 已連線';
+            document.getElementById('connStatus').style.color = 'green';
+            
+            const data = snapshot.val() || {};
+            expensesData = data.expenses || {};
+            if (data.budgets) budgetsData = data.budgets;
+            if (data.rate) {
+                currentRate = data.rate;
+                document.getElementById('exchangeRate').value = currentRate;
+            }
+            renderAll(); // 收到資料後更新畫面
+            
+        }, (error) => {
+            // 連線失敗或網址填錯
+            document.getElementById('connStatus').innerText = '🔴 連線失敗 (請檢查資料庫網址設定)';
+            document.getElementById('connStatus').style.color = 'red';
+            console.error("Firebase 錯誤:", error);
+        });
+    }
+
+    // 初始化連線
+    listenToRoom(currentRoom);
+
+    function switchRoom() {
+        const newRoom = document.getElementById('roomId').value.trim();
+        if (newRoom) {
+            currentRoom = newRoom;
+            localStorage.setItem('korea_room_id', currentRoom);
+            document.getElementById('connStatus').innerText = '連線中...';
+            document.getElementById('connStatus').style.color = '#888';
+            expensesData = {}; // 切換群組時先清空資料
+            listenToRoom(currentRoom);
+        }
+    }
+
+    function updateRate() {
+        const rate = parseFloat(document.getElementById('exchangeRate').value) || 0.024;
+        if(db) db.ref('rooms/' + currentRoom + '/rate').set(rate);
+    }
+
+    function addExpense() {
+        if (!db) {
+            alert("請先完成程式碼中的資料庫網址設定才能新增喔！");
+            return;
+        }
+
+        const category = document.getElementById('itemCategory').value;
+        const nameInput = document.getElementById('itemName');
+        const amountInput = document.getElementById('inputAmount');
+        const currency = document.getElementById('inputCurrency').value;
+        
+        const name = nameInput.value.trim();
+        const amount = parseFloat(amountInput.value);
+
+        if (!name || isNaN(amount) || amount <= 0) {
+            alert('請填寫正確的項目名稱與金額！');
+            return;
+        }
+
+        let krw = 0, twd = 0;
+        if (currency === 'KRW') {
+            krw = amount;
+            twd = Math.round(amount * currentRate);
+        } else {
+            twd = amount;
+            krw = Math.round(amount / currentRate);
+        }
+
+        const newKey = db.ref('rooms/' + currentRoom + '/expenses').push().key;
+        db.ref('rooms/' + currentRoom + '/expenses/' + newKey).set({
+            category, name, krw, twd, inputCurrency: currency, timestamp: Date.now()
+        });
+
+        nameInput.value = '';
+        amountInput.value = '';
+        nameInput.focus();
+    }
+
+    function deleteExpense(key) {
+        if(db) db.ref('rooms/' + currentRoom + '/expenses/' + key).remove();
+    }
+
+    function updateBudget(cat, value) {
+        budgetsData[cat] = parseFloat(value) || 0;
+        if(db) db.ref('rooms/' + currentRoom + '/budgets').set(budgetsData);
+    }
+
+    function clearAll() {
+        if (!db) return;
+        if (confirm(`確定要清空群組「${currentRoom}」的所有資料嗎？`)) {
+            db.ref('rooms/' + currentRoom).remove();
+        }
+    }
+
+    function renderAll() {
+        const listTable = document.getElementById('expenseList');
+        listTable.innerHTML = '';
+        
+        let totalKrw = 0, totalTwd = 0;
+        let catTotals = {};
+        categories.forEach(c => catTotals[c] = 0);
+
+        Object.keys(expensesData).forEach(key => {
+            const item = expensesData[key];
+            let currentKrw = item.krw;
+            let currentTwd = item.twd;
+
+            // 確保匯率變動時重新換算
+            if (item.inputCurrency === 'KRW') {
+                currentTwd = Math.round(item.krw * currentRate);
+            } else if (item.inputCurrency === 'TWD') {
+                currentKrw = Math.round(item.twd / currentRate);
+            }
+
+            totalKrw += currentKrw;
+            totalTwd += currentTwd;
+            
+            if (catTotals[item.category] !== undefined) {
+                catTotals[item.category] += currentTwd;
+            }
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><span style="background:#f0f0f0; padding:2px 6px; border-radius:4px; font-size:12px;">${item.category}</span></td>
+                <td>${escapeHtml(item.name)}</td>
+                <td class="amount">${currentKrw.toLocaleString()} ₩</td>
+                <td class="amount">NT$ ${currentTwd.toLocaleString()}</td>
+                <td><button class="btn-delete" onclick="deleteExpense('${key}')">✕</button></td>
+            `;
+            listTable.appendChild(row);
+        });
+
+        document.getElementById('totalKrw').innerText = `${totalKrw.toLocaleString()} ₩`;
+        document.getElementById('totalTwd').innerText = `NT$ ${totalTwd.toLocaleString()}`;
+
+        // 渲染底下的分類預算卡片
+        const grid = document.getElementById('categoryGrid');
+        grid.innerHTML = '';
+
+        categories.forEach(cat => {
+            const spent = catTotals[cat] || 0;
+            const budget = budgetsData[cat] || 0;
+            const isOver = budget > 0 && spent > budget;
+
+            const card = document.createElement('div');
+            card.className = `cat-card ${isOver ? 'over-budget' : ''}`;
+            card.innerHTML = `
+                <div class="cat-header">
+                    <span>${cat}</span>
+                    <span class="badge-over">⚠️ 超標</span>
+                </div>
+                <div style="font-size: 15px; font-weight: bold; margin-bottom: 4px;">
+                    已花費: NT$ ${spent.toLocaleString()}
+                </div>
+                <div class="cat-budget-input">
+                    <label>預算台幣:</label>
+                    <input type="number" value="${budget}" onchange="updateBudget('${cat}', this.value)">
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+</script>
+
+</body>
+</html>
